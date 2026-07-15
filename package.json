@@ -1,11 +1,19 @@
 {
-  "name": "weixin-codex-bridge",
-  "version": "0.1.0",
+  "name": "wechat-agent-bridge",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
-  "description": "Personal Weixin-to-Codex bridge using the OpenClaw Weixin transport API shape without OpenClaw agent runtime.",
+  "description": "Use Codex or Claude Code from WeChat through a local bridge.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chenshize/wechat-agent-bridge.git"
+  },
+  "homepage": "https://github.com/chenshize/wechat-agent-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/chenshize/wechat-agent-bridge/issues"
+  },
   "bin": {
-    "weixin-codex-bridge": "./src/cli.js"
+    "wechat-agent-bridge": "./src/cli.js"
   },
   "scripts": {
     "login": "node ./src/cli.js login",

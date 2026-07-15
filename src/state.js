@@ -1,11 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 export function stateDir() {
-  return process.env.WEIXIN_CODEX_STATE_DIR?.trim() ||
+  const legacyDir = path.join(os.homedir(), ".weixin-codex-bridge");
+  return process.env.WECHAT_BRIDGE_STATE_DIR?.trim() ||
+    process.env.WEIXIN_CODEX_STATE_DIR?.trim() ||
     process.env.OPENCLAW_STATE_DIR?.trim() ||
-    path.join(os.homedir(), ".weixin-codex-bridge");
+    (fs.existsSync(legacyDir) ? legacyDir : path.join(os.homedir(), ".wechat-agent-bridge"));
 }
 
 export function accountsDir() {
@@ -121,6 +124,23 @@ export function saveSettings(update) {
   return next;
 }
 
+export const AGENT_PROVIDERS = ["codex", "claude-code"];
+
+export function loadAgentProvider() {
+  const configured = loadSettings().agentProvider;
+  const fallback = process.env.WECHAT_BRIDGE_DEFAULT_AGENT?.trim().toLowerCase() || "codex";
+  return AGENT_PROVIDERS.includes(configured) ? configured :
+    AGENT_PROVIDERS.includes(fallback) ? fallback : "codex";
+}
+
+export function saveAgentProvider(provider) {
+  const normalized = String(provider || "").trim().toLowerCase();
+  if (!AGENT_PROVIDERS.includes(normalized)) {
+    throw new Error(`unsupported agent provider: ${normalized || "<empty>"}`);
+  }
+  return saveSettings({ agentProvider: normalized });
+}
+
 export function listCodexModels() {
   const cachePath = path.join(os.homedir(), ".codex", "models_cache.json");
   const data = readJson(cachePath, {});
@@ -139,7 +159,10 @@ function loadCodexModelCatalog() {
 }
 
 export function defaultCodexModel() {
-  return process.env.WEIXIN_CODEX_DEFAULT_MODEL?.trim() || listCodexModels()[0] || "gpt-5.5";
+  return process.env.WECHAT_BRIDGE_CODEX_DEFAULT_MODEL?.trim() ||
+    process.env.WEIXIN_CODEX_DEFAULT_MODEL?.trim() ||
+    listCodexModels()[0] ||
+    "gpt-5.5";
 }
 
 export function loadCodexModel() {
@@ -190,4 +213,62 @@ export function saveCodexReasoningEffort(effort) {
     throw new Error(`unsupported Codex reasoning effort: ${normalized || "<empty>"}`);
   }
   return saveSettings({ codexReasoningEffort: normalized });
+}
+
+function loadClaudeSettings() {
+  const userSettings = readJson(path.join(os.homedir(), ".claude", "settings.json"), {});
+  const localSettings = readJson(path.join(os.homedir(), ".claude", "settings.local.json"), {});
+  return { ...userSettings, ...localSettings };
+}
+
+export function listClaudeModels() {
+  const models = new Set(["sonnet", "opus", "haiku"]);
+  const configured = loadClaudeSettings().model;
+  if (typeof configured === "string" && configured.trim()) models.add(configured.trim());
+  try {
+    const help = execFileSync("claude", ["--help"], { encoding: "utf8", timeout: 5000 });
+    const modelHelp = help.match(/--model <model>[\s\S]*?(?=\n\s{2}--|\nCommands:|$)/)?.[0] || "";
+    for (const match of modelHelp.matchAll(/'([^']+)'/g)) {
+      if (/^[a-z0-9._:[\]-]+$/i.test(match[1])) models.add(match[1]);
+    }
+  } catch {
+    // Fall back to stable aliases when Claude is unavailable or help changes.
+  }
+  return [...models];
+}
+
+export function loadClaudeModel() {
+  const configured = loadSettings().claudeModel;
+  if (typeof configured === "string" && configured.trim()) return configured.trim();
+  const environmentModel = process.env.WECHAT_BRIDGE_CLAUDE_CODE_MODEL?.trim();
+  if (environmentModel) return environmentModel;
+  const settingsModel = loadClaudeSettings().model;
+  return typeof settingsModel === "string" && settingsModel.trim() ? settingsModel.trim() : "sonnet";
+}
+
+export function saveClaudeModel(model) {
+  const normalized = String(model || "").trim();
+  if (!normalized) throw new Error("Claude Code model cannot be empty");
+  return saveSettings({ claudeModel: normalized });
+}
+
+export function listClaudeReasoningEfforts() {
+  return ["low", "medium", "high", "xhigh", "max"];
+}
+
+export function loadClaudeReasoningEffort() {
+  const configured = loadSettings().claudeReasoningEffort;
+  const available = listClaudeReasoningEfforts();
+  if (typeof configured === "string" && available.includes(configured.trim())) return configured.trim();
+  const environmentEffort = process.env.WECHAT_BRIDGE_CLAUDE_CODE_EFFORT?.trim().toLowerCase();
+  return available.includes(environmentEffort) ? environmentEffort : "high";
+}
+
+export function saveClaudeReasoningEffort(effort) {
+  const normalized = String(effort || "").trim().toLowerCase();
+  const available = listClaudeReasoningEfforts();
+  if (!available.includes(normalized)) {
+    throw new Error(`unsupported Claude Code effort: ${normalized || "<empty>"}`);
+  }
+  return saveSettings({ claudeReasoningEffort: normalized });
 }

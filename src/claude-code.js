@@ -1,29 +1,26 @@
 import { spawn } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
-import { loadCodexModel, loadCodexReasoningEffort, loadHistory } from "./state.js";
+import { loadClaudeModel, loadClaudeReasoningEffort, loadHistory } from "./state.js";
 
-function codexArgs(outputFile) {
-  const extra = process.env.WECHAT_BRIDGE_CODEX_ARGS?.trim() || process.env.WEIXIN_CODEX_ARGS?.trim();
-  if (extra) return extra.split(/\s+/);
-  const model = loadCodexModel();
-  const reasoningEffort = loadCodexReasoningEffort();
+function splitArgs(value) {
+  return String(value || "").match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((part) =>
+    part.replace(/^(["'])(.*)\1$/, "$2")
+  ) || [];
+}
+
+function claudeArgs() {
+  const extra = process.env.WECHAT_BRIDGE_CLAUDE_CODE_ARGS?.trim();
+  if (extra) return splitArgs(extra);
   return [
-    "exec",
+    "--print",
+    "--verbose",
+    "--output-format",
+    "stream-json",
+    "--dangerously-skip-permissions",
     "--model",
-    model,
-    "-c",
-    `model_reasoning_effort="${reasoningEffort}"`,
-    "--json",
-    "--dangerously-bypass-approvals-and-sandbox",
-    "--skip-git-repo-check",
-    "-C",
-    process.env.WECHAT_BRIDGE_CWD || process.env.WEIXIN_CODEX_CWD || process.cwd(),
-    "--output-last-message",
-    outputFile,
-    "-",
+    loadClaudeModel(),
+    "--effort",
+    loadClaudeReasoningEffort(),
   ];
 }
 
@@ -32,10 +29,8 @@ function buildPrompt({ peerId, text }) {
   const historyText = history
     .map((turn) => `${turn.role === "user" ? "用户" : "助手"}: ${turn.content}`)
     .join("\n");
-  const identity = "你是通过个人微信接入的本地 Codex 助手。用中文简洁回答，除非用户要求其它语言。";
-
   return [
-    identity,
+    "你是通过个人微信接入的本地 Claude Code 助手。用中文简洁回答，除非用户要求其它语言。",
     "不要提及内部桥接实现，除非用户询问。",
     "如果用户要求执行本机操作，先判断风险；默认只做必要、可解释的操作。",
     "",
@@ -44,26 +39,27 @@ function buildPrompt({ peerId, text }) {
   ].join("\n");
 }
 
-function codexCommand(outputFile) {
-  return { bin: "codex", args: codexArgs(outputFile), stdin: true, outputFile };
+function finalResult(stdout) {
+  let result = "";
+  for (const line of stdout.split(/\r?\n/)) {
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "result" && typeof event.result === "string") result = event.result.trim();
+    } catch {
+      // Claude emits NDJSON in the default configuration; ignore non-JSON diagnostics.
+    }
+  }
+  return result;
 }
 
-export function isAgentStoppedError(err) {
-  return err?.code === "AGENT_STOPPED";
-}
-
-export function startAgent({ peerId, text, onOutput } = {}) {
-  const provider = "codex";
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-bridge-codex-"));
-  const outputFile = path.join(tmpDir, "last-message.txt");
-  const command = codexCommand(outputFile);
-  const prompt = buildPrompt({ peerId, text });
+export function startClaudeCode({ peerId, text, onOutput } = {}) {
+  const provider = "claude-code";
   const timeoutMs = Number.parseInt(
     process.env.WECHAT_BRIDGE_TIMEOUT_MS || process.env.WEIXIN_CODEX_TIMEOUT_MS || "600000",
     10,
   );
-
-  const child = spawn(command.bin, command.args, {
+  const child = spawn("claude", claudeArgs(), {
+    cwd: process.env.WECHAT_BRIDGE_CWD || process.env.WEIXIN_CODEX_CWD || process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
   });
@@ -107,13 +103,10 @@ export function startAgent({ peerId, text, onOutput } = {}) {
         reject(new Error(`${provider} exited ${code}: ${stderr || stdout}`));
         return;
       }
-      const finalText = command.outputFile && fs.existsSync(command.outputFile)
-        ? fs.readFileSync(outputFile, "utf8").trim()
-        : stdout.trim();
-      resolve(finalText || "我这边没有生成可发送的回复。");
+      resolve(finalResult(stdout) || "我这边没有生成可发送的回复。");
     });
 
-    child.stdin.end(prompt);
+    child.stdin.end(buildPrompt({ peerId, text }));
   });
 
   return {
@@ -128,10 +121,3 @@ export function startAgent({ peerId, text, onOutput } = {}) {
     },
   };
 }
-
-export async function askAgent(args) {
-  const task = startAgent(args);
-  return await task.promise;
-}
-
-export const askCodex = askAgent;

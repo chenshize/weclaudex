@@ -1,121 +1,123 @@
-# weixin-codex-bridge
+# wechat-agent-bridge
 
-An experimental, text-first bridge that lets you use Codex from Weixin.
+[English](README.en.md) | 简体中文
+
+一个实验性的本地微信桥，让你可以直接在微信里使用 Codex 或 Claude Code，并通过 `/codex`、`/claude-code` 随时切换后端。
 
 > [!WARNING]
-> The default Codex command uses `--dangerously-bypass-approvals-and-sandbox`,
-> so messages accepted by the bridge can execute commands and access files as
-> your local user. Keep the sender allowlist enabled, use a dedicated workspace,
-> and only run this on a machine and Weixin account you trust.
+> 默认配置会跳过 Codex 和 Claude Code 的交互式权限确认。桥接收到的消息可能以你的本地用户身份执行命令并访问文件。请保持发送者白名单开启、使用独立工作目录，并且只在你信任的电脑和微信账号上运行。
 
-This does not use OpenClaw as the agent runtime. It reimplements the small HTTP API surface documented by `@tencent-weixin/openclaw-weixin`:
+本项目不使用 OpenClaw 作为 Agent 运行时，只复现 `@tencent-weixin/openclaw-weixin` 所记录的一小部分 HTTP API：
 
-- QR login: `get_bot_qrcode` / `get_qrcode_status`
-- Receive: `ilink/bot/getupdates`
-- Send text: `ilink/bot/sendmessage`
+- 扫码登录：`get_bot_qrcode` / `get_qrcode_status`
+- 接收消息：`ilink/bot/getupdates`
+- 发送文本：`ilink/bot/sendmessage`
 
-The first version supports text-only direct messages.
+目前支持文本私聊和发送图片；暂不支持理解收到的图片、文件或语音。
 
-## Install
+## 环境要求
+
+- Node.js 22+
+- 已安装并登录 `codex` 和/或 `claude` CLI
+
+## 安装
 
 ```bash
 npm install
 ```
 
-Requires Node.js 22+ and an existing `codex` CLI login.
-
-## Login
+## 登录微信
 
 ```bash
 npm run login
 ```
 
-Scan the QR code with Weixin. Credentials are stored in:
+使用微信扫描终端二维码。凭据默认保存在：
 
 ```text
-~/.weixin-codex-bridge
+~/.wechat-agent-bridge
 ```
 
-Set `WEIXIN_CODEX_STATE_DIR` to use another directory.
+可以通过 `WECHAT_BRIDGE_STATE_DIR` 修改状态目录。旧版本用户会继续使用 `~/.weixin-codex-bridge`，已有登录凭据不会丢失。
 
-## Run
+## 运行
 
 ```bash
 npm run run
 ```
 
-By default the bridge only processes messages from the Weixin `userId` returned during QR login.
+默认只处理扫码登录时返回的微信 `userId` 发来的消息。
 
-Useful environment variables:
+常用环境变量：
 
 ```bash
-WEIXIN_CODEX_CWD=/path/to/workspace
-WEIXIN_CODEX_ALLOW_FROM=user1@im.wechat,user2@im.wechat
-WEIXIN_CODEX_ALLOW_ALL=1
-WEIXIN_CODEX_TIMEOUT_MS=600000
-WEIXIN_CODEX_PROGRESS_DELAY_MS=2500
-WEIXIN_CODEX_PROGRESS_TEXT='收到，正在处理...'
-WEIXIN_CODEX_DEFAULT_MODEL=gpt-5.6-sol
+WECHAT_BRIDGE_CWD=/path/to/workspace
+WECHAT_BRIDGE_ALLOW_FROM=user1@im.wechat,user2@im.wechat
+WECHAT_BRIDGE_ALLOW_ALL=1
+WECHAT_BRIDGE_TIMEOUT_MS=600000
+WECHAT_BRIDGE_PROGRESS_DELAY_MS=2500
+WECHAT_BRIDGE_PROGRESS_TEXT='收到，正在处理...'
+WECHAT_BRIDGE_DEFAULT_AGENT=codex
+WECHAT_BRIDGE_CODEX_DEFAULT_MODEL=gpt-5.6-sol
+WECHAT_BRIDGE_CLAUDE_CODE_MODEL=sonnet
+WECHAT_BRIDGE_CLAUDE_CODE_EFFORT=high
 ```
 
-`WEIXIN_CODEX_PROGRESS_TEXT` is empty by default. Set it only if you want visible progress messages in addition to Weixin typing state.
+`WECHAT_BRIDGE_PROGRESS_TEXT` 默认为空。只有需要在微信输入状态之外额外发送进度消息时才需要配置。
 
-By default the bridge starts Codex with full local permissions, matching the Lark bridge behavior.
+## 微信指令
 
-Default Codex invocation:
+```text
+/codex                    切换到 Codex
+/claude-code              切换到 Claude Code
+/status                   查看当前后端、模型、思考级别和权限
+/model                    查看当前后端可用的模型
+/model <name>             切换当前后端的模型
+/think                    查看当前后端可用的思考级别
+/think <level>            切换当前后端的思考级别
+/new                      开启新话题并清空本地上下文
+/reset                    等同于 /new
+/stop                     停止当前任务
+/help                     查看指令帮助
+```
+
+`/status`、`/model` 和 `/think` 会根据当前后端自动生效。Claude Code 支持 `sonnet`、`opus`、`haiku` 等别名，也支持完整模型 ID；思考级别支持 `low`、`medium`、`high`、`xhigh`、`max`。
+
+## 权限和自定义参数
+
+Codex 默认使用完全本地权限运行：
 
 ```bash
 codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -C "$PWD" --output-last-message <tmp> -
 ```
 
-Override the Codex invocation completely:
+可以用 `WECHAT_BRIDGE_CODEX_ARGS` 完全覆盖 Codex 参数，用 `WECHAT_BRIDGE_CLAUDE_CODE_ARGS` 完全覆盖 Claude Code 参数。
 
-```bash
-WEIXIN_CODEX_ARGS='exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -C /path/to/workspace --output-last-message /tmp/out -'
-```
-
-## Weixin Commands
-
-```text
-/model
-/model gpt-5.6-sol
-/think
-/think high
-/help
-/new
-/reset
-/stop
-/status
-```
-
-`/status` shows the active Codex model. `/model` lists available models from `~/.codex/models_cache.json`; `/model <name>` stores the selected model in `~/.weixin-codex-bridge/settings.json` and passes it to `codex exec --model`.
-`/think` lists available reasoning levels for the active model; `/think <level>` stores the selected level and passes it to Codex as `-c model_reasoning_effort="<level>"`.
-
-## Doctor
+## 诊断
 
 ```bash
 npm run doctor
 ```
 
-## Send A Test Image
+## 发送测试图片
 
 ```bash
 node src/cli.js send-image /absolute/path/to/image.png
 ```
 
-By default the recipient is the `userId` captured during QR login. Override it with:
+默认发送给扫码登录时记录的 `userId`。也可以指定接收人：
 
 ```bash
-WEIXIN_CODEX_TO='user@im.wechat' node src/cli.js send-image /absolute/path/to/image.png
+WECHAT_BRIDGE_TO='user@im.wechat' node src/cli.js send-image /absolute/path/to/image.png
 ```
 
-## Notes
+## 说明
 
-- This prototype intentionally avoids importing `@tencent-weixin/openclaw-weixin` directly because its modules import `openclaw/plugin-sdk`.
-- Outbound image sending is supported through Weixin CDN upload. Inbound image understanding is not implemented yet.
-- Keep the bridge process running while you want Weixin messages delivered to Codex.
-- This is an independent community project and is not affiliated with or endorsed by Tencent, Weixin, or OpenAI.
+- 项目没有直接导入 `@tencent-weixin/openclaw-weixin`，因为其模块依赖 `openclaw/plugin-sdk`。
+- 发送图片通过微信 CDN 上传实现。
+- 使用期间需要保持桥接进程运行。
+- 本项目是独立社区项目，与腾讯、微信、Anthropic 或 OpenAI 无隶属或官方认可关系。
 
-## License
+## 许可证
 
 [MIT](LICENSE)

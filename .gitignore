@@ -6,6 +6,7 @@ node_modules/
 # Local launcher and runtime credentials/state
 start.sh
 .weixin-codex-bridge/
+.wechat-agent-bridge/
 
 # Logs and editor/OS files
 *.log

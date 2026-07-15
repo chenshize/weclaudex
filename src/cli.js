@@ -5,6 +5,7 @@ import readline from "node:readline/promises";
 import qrcode from "qrcode-terminal";
 
 import { isAgentStoppedError, startAgent } from "./codex.js";
+import { startClaudeCode } from "./claude-code.js";
 import {
   DEFAULT_BASE_URL,
   DEFAULT_BOT_TYPE,
@@ -18,18 +19,26 @@ import {
   sendImage,
   sendText,
   sendTyping,
-} from "./weixin-api.js";
+} from "./wechat-api.js";
 import {
   appendHistory,
   clearHistory,
   listAccountIds,
+  listClaudeModels,
+  listClaudeReasoningEfforts,
   listCodexModels,
   listCodexReasoningEfforts,
   loadAccount,
+  loadAgentProvider,
+  loadClaudeModel,
+  loadClaudeReasoningEffort,
   loadCodexModel,
   loadCodexReasoningEffort,
   loadSyncBuf,
   saveAccount,
+  saveAgentProvider,
+  saveClaudeModel,
+  saveClaudeReasoningEffort,
   saveCodexModel,
   saveCodexReasoningEffort,
   saveSyncBuf,
@@ -44,14 +53,18 @@ function usage() {
   node src/cli.js send-image /absolute/path/to/image.png
 
 Environment:
-  WEIXIN_CODEX_STATE_DIR   State directory, default ~/.weixin-codex-bridge
-  WEIXIN_CODEX_ACCOUNT_ID  Account id to run, default latest login
-  WEIXIN_CODEX_ALLOW_FROM  Comma-separated allowed Weixin user ids
-  WEIXIN_CODEX_ALLOW_ALL   Set 1 to process messages from any user
-  WEIXIN_CODEX_CWD         Codex working directory, default current directory
-  WEIXIN_CODEX_ARGS        Full custom Codex args; overrides default args
+  WECHAT_BRIDGE_STATE_DIR      State directory, default ~/.wechat-agent-bridge
+  WECHAT_BRIDGE_ACCOUNT_ID     Account id to run, default latest login
+  WECHAT_BRIDGE_ALLOW_FROM     Comma-separated allowed WeChat user ids
+  WECHAT_BRIDGE_ALLOW_ALL      Set 1 to process messages from any user
+  WECHAT_BRIDGE_CWD            Agent working directory, default current directory
+  WECHAT_BRIDGE_DEFAULT_AGENT  Initial backend: codex or claude-code
+  WECHAT_BRIDGE_CODEX_ARGS     Full custom Codex args
+  WECHAT_BRIDGE_CLAUDE_CODE_ARGS Full custom Claude Code args
 
-Weixin commands:
+WeChat commands:
+  /codex                  Switch to Codex
+  /claude-code            Switch to Claude Code
   /model                  Show current and available Codex models
   /model <name>           Switch Codex model, e.g. /model gpt-5.6-sol
   /think                  Show current and available reasoning levels
@@ -82,10 +95,10 @@ async function promptLine(label) {
 }
 
 async function login() {
-  console.log(`[weixin-codex] state dir: ${stateDir()}`);
-  console.log("[weixin-codex] requesting QR code...");
+  console.log(`[wechat-bridge] state dir: ${stateDir()}`);
+  console.log("[wechat-bridge] requesting QR code...");
   const qr = await fetchQrCode({
-    botType: process.env.WEIXIN_CODEX_BOT_TYPE || DEFAULT_BOT_TYPE,
+    botType: process.env.WECHAT_BRIDGE_BOT_TYPE || process.env.WEIXIN_CODEX_BOT_TYPE || DEFAULT_BOT_TYPE,
     localTokenList: localTokenList(),
   });
   if (!qr?.qrcode || !qr?.qrcode_img_content) {
@@ -98,7 +111,10 @@ async function login() {
 
   let currentBaseUrl = DEFAULT_BASE_URL;
   let pendingVerifyCode = "";
-  const deadline = Date.now() + Number.parseInt(process.env.WEIXIN_CODEX_LOGIN_TIMEOUT_MS || "480000", 10);
+  const deadline = Date.now() + Number.parseInt(
+    process.env.WECHAT_BRIDGE_LOGIN_TIMEOUT_MS || process.env.WEIXIN_CODEX_LOGIN_TIMEOUT_MS || "480000",
+    10,
+  );
 
   while (Date.now() < deadline) {
     const status = await pollQrStatus({
@@ -156,8 +172,8 @@ async function login() {
 }
 
 function allowedSender(account, fromUserId) {
-  if (process.env.WEIXIN_CODEX_ALLOW_ALL === "1") return true;
-  const configured = (process.env.WEIXIN_CODEX_ALLOW_FROM || "")
+  if ((process.env.WECHAT_BRIDGE_ALLOW_ALL || process.env.WEIXIN_CODEX_ALLOW_ALL) === "1") return true;
+  const configured = (process.env.WECHAT_BRIDGE_ALLOW_FROM || process.env.WEIXIN_CODEX_ALLOW_FROM || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -247,18 +263,35 @@ function codexProgressFromEvent(event) {
   return "";
 }
 
+function claudeProgressFromEvent(event) {
+  if (event?.type === "assistant" && Array.isArray(event.message?.content)) {
+    const tool = event.message.content.find((item) => item?.type === "tool_use");
+    if (tool) return formatProgress(tool.name || "tool");
+  }
+  if (event?.type === "content_block_start" && event.content_block?.type === "tool_use") {
+    return formatProgress(event.content_block.name || "tool");
+  }
+  return "";
+}
+
 function createProgressRelay({ baseUrl, token, to, contextToken, runId, markOutput }) {
   let stdoutBuffer = "";
   let pending = [];
   let flushTimer;
   let lastSentAt = 0;
-  const minIntervalMs = Number.parseInt(process.env.WEIXIN_CODEX_STREAM_PROGRESS_MIN_INTERVAL_MS || "5000", 10);
-  const maxItems = Number.parseInt(process.env.WEIXIN_CODEX_STREAM_PROGRESS_MAX_ITEMS || "3", 10);
+  const minIntervalMs = Number.parseInt(
+    process.env.WECHAT_BRIDGE_STREAM_PROGRESS_MIN_INTERVAL_MS || process.env.WEIXIN_CODEX_STREAM_PROGRESS_MIN_INTERVAL_MS || "5000",
+    10,
+  );
+  const maxItems = Number.parseInt(
+    process.env.WECHAT_BRIDGE_STREAM_PROGRESS_MAX_ITEMS || process.env.WEIXIN_CODEX_STREAM_PROGRESS_MAX_ITEMS || "3",
+    10,
+  );
 
   function progressFromLine(line) {
     try {
       const event = JSON.parse(line);
-      return codexProgressFromEvent(event);
+      return codexProgressFromEvent(event) || claudeProgressFromEvent(event);
     } catch {
       return "";
     }
@@ -287,7 +320,7 @@ function createProgressRelay({ baseUrl, token, to, contextToken, runId, markOutp
       contextToken,
       runId,
       text: selected.join("\n"),
-    }).catch((err) => console.warn(`[weixin-codex] stream progress send failed: ${String(err)}`));
+    }).catch((err) => console.warn(`[wechat-bridge] stream progress send failed: ${String(err)}`));
   }
 
   return function onOutput({ stream, text }) {
@@ -316,7 +349,7 @@ async function sendReplyChunks({ baseUrl, token, to, contextToken, runId, text }
       runId,
       text: `${prefix}${chunks[i]}`,
     });
-    console.log(`[weixin-codex] sent reply chunk ${i + 1}/${chunks.length} to=${to} messageId=${result.clientId}`);
+    console.log(`[wechat-bridge] sent reply chunk ${i + 1}/${chunks.length} to=${to} messageId=${result.clientId}`);
   }
 }
 
@@ -362,6 +395,8 @@ async function handleSlashCommand({ baseUrl, token, to, contextToken, runId, tex
       runId,
       text: [
         "微信桥指令：",
+        "/codex 切换到 Codex",
+        "/claude-code 切换到 Claude Code",
         "/status 查看后端、模型、思考级别和权限",
         "/model 查看可选模型",
         "/model gpt-5.6-sol 切换模型",
@@ -375,22 +410,39 @@ async function handleSlashCommand({ baseUrl, token, to, contextToken, runId, tex
     return true;
   }
   if (command === "/status") {
-    const model = loadCodexModel();
-    const reasoningEffort = loadCodexReasoningEffort();
+    const provider = loadAgentProvider();
+    const model = provider === "codex" ? loadCodexModel() : loadClaudeModel();
+    const reasoningEffort = provider === "codex" ? loadCodexReasoningEffort() : loadClaudeReasoningEffort();
     await sendText({
       baseUrl,
       token,
       to,
       contextToken,
       runId,
-      text: `当前后端：Codex\n当前模型：${model}\n思考级别：${reasoningEffort}\n当前权限：完全权限`,
+      text: `当前后端：${provider === "codex" ? "Codex" : "Claude Code"}\n当前模型：${model}\n思考级别：${reasoningEffort}\n当前权限：完全权限`,
     });
+    return true;
+  }
+  if (command === "/codex" || command === "/claude-code") {
+    const provider = command.slice(1);
+    saveAgentProvider(provider);
+    await sendText({
+      baseUrl,
+      token,
+      to,
+      contextToken,
+      runId,
+      text: provider === "codex" ? "已切换到 Codex。" : "已切换到 Claude Code。",
+    });
+    console.log(`[wechat-bridge] agent switched to ${provider} by ${to}`);
     return true;
   }
   const modelCommand = parseModelCommand(text);
   if (modelCommand !== null) {
-    const current = loadCodexModel();
-    const available = listCodexModels();
+    const provider = loadAgentProvider();
+    const isCodex = provider === "codex";
+    const current = isCodex ? loadCodexModel() : loadClaudeModel();
+    const available = isCodex ? listCodexModels() : listClaudeModels();
     if (!modelCommand) {
       await sendText({
         baseUrl,
@@ -402,7 +454,7 @@ async function handleSlashCommand({ baseUrl, token, to, contextToken, runId, tex
       });
       return true;
     }
-    if (!available.includes(modelCommand)) {
+    if (isCodex && !available.includes(modelCommand)) {
       await sendText({
         baseUrl,
         token,
@@ -413,22 +465,25 @@ async function handleSlashCommand({ baseUrl, token, to, contextToken, runId, tex
       });
       return true;
     }
-    saveCodexModel(modelCommand);
+    if (isCodex) saveCodexModel(modelCommand);
+    else saveClaudeModel(modelCommand);
     await sendText({
       baseUrl,
       token,
       to,
       contextToken,
       runId,
-      text: `已切换 Codex 模型：${modelCommand}`,
+      text: `已切换${isCodex ? " Codex" : " Claude Code"} 模型：${modelCommand}`,
     });
-    console.log(`[weixin-codex] codex model switched to ${modelCommand} by ${to}`);
+    console.log(`[wechat-bridge] ${provider} model switched to ${modelCommand} by ${to}`);
     return true;
   }
   const reasoningCommand = parseReasoningCommand(text);
   if (reasoningCommand !== null) {
-    const current = loadCodexReasoningEffort();
-    const available = listCodexReasoningEfforts();
+    const provider = loadAgentProvider();
+    const isCodex = provider === "codex";
+    const current = isCodex ? loadCodexReasoningEffort() : loadClaudeReasoningEffort();
+    const available = isCodex ? listCodexReasoningEfforts() : listClaudeReasoningEfforts();
     if (!reasoningCommand) {
       await sendText({
         baseUrl,
@@ -451,16 +506,17 @@ async function handleSlashCommand({ baseUrl, token, to, contextToken, runId, tex
       });
       return true;
     }
-    saveCodexReasoningEffort(reasoningCommand);
+    if (isCodex) saveCodexReasoningEffort(reasoningCommand);
+    else saveClaudeReasoningEffort(reasoningCommand);
     await sendText({
       baseUrl,
       token,
       to,
       contextToken,
       runId,
-      text: `已切换 Codex 思考级别：${reasoningCommand}`,
+      text: `已切换${isCodex ? " Codex" : " Claude Code"} 思考级别：${reasoningCommand}`,
     });
-    console.log(`[weixin-codex] codex reasoning effort switched to ${reasoningCommand} by ${to}`);
+    console.log(`[wechat-bridge] ${provider} reasoning effort switched to ${reasoningCommand} by ${to}`);
     return true;
   }
   if (command === "/new" || command === "/reset") {
@@ -473,7 +529,7 @@ async function handleSlashCommand({ baseUrl, token, to, contextToken, runId, tex
       runId,
       text: "已开启新话题。",
     });
-    console.log(`[weixin-codex] cleared history for ${to}`);
+    console.log(`[wechat-bridge] cleared history for ${to}`);
     return true;
   }
   if (command === "/stop") {
@@ -496,30 +552,36 @@ async function startUserFeedback({ baseUrl, token, to, contextToken }) {
     const cfg = await getConfig({ baseUrl, token, to, contextToken });
     typingTicket = cfg.typing_ticket || "";
     await sendTyping({ baseUrl, token, to, typingTicket, status: 1 });
-    if (typingTicket) console.log(`[weixin-codex] typing started to=${to}`);
+    if (typingTicket) console.log(`[wechat-bridge] typing started to=${to}`);
   } catch (err) {
-    console.warn(`[weixin-codex] typing start failed: ${String(err)}`);
+    console.warn(`[wechat-bridge] typing start failed: ${String(err)}`);
   }
 
   let progressSent = false;
-  const progressText = process.env.WEIXIN_CODEX_PROGRESS_TEXT?.trim() || "";
-  const delayMs = Number.parseInt(process.env.WEIXIN_CODEX_PROGRESS_DELAY_MS || "2500", 10);
-  const typingHeartbeatMs = Number.parseInt(process.env.WEIXIN_CODEX_TYPING_HEARTBEAT_MS || "15000", 10);
+  const progressText = (process.env.WECHAT_BRIDGE_PROGRESS_TEXT || process.env.WEIXIN_CODEX_PROGRESS_TEXT || "").trim();
+  const delayMs = Number.parseInt(
+    process.env.WECHAT_BRIDGE_PROGRESS_DELAY_MS || process.env.WEIXIN_CODEX_PROGRESS_DELAY_MS || "2500",
+    10,
+  );
+  const typingHeartbeatMs = Number.parseInt(
+    process.env.WECHAT_BRIDGE_TYPING_HEARTBEAT_MS || process.env.WEIXIN_CODEX_TYPING_HEARTBEAT_MS || "15000",
+    10,
+  );
   const timer = progressText
     ? setTimeout(() => {
         sendText({ baseUrl, token, to, contextToken, text: progressText })
           .then((result) => {
             progressSent = true;
-            console.log(`[weixin-codex] sent progress to=${to} messageId=${result.clientId}`);
+            console.log(`[wechat-bridge] sent progress to=${to} messageId=${result.clientId}`);
           })
-          .catch((err) => console.warn(`[weixin-codex] progress send failed: ${String(err)}`));
+          .catch((err) => console.warn(`[wechat-bridge] progress send failed: ${String(err)}`));
       }, delayMs)
     : undefined;
   const heartbeat = typingTicket && typingHeartbeatMs > 0
     ? setInterval(() => {
         sendTyping({ baseUrl, token, to, typingTicket, status: 1 })
-          .then(() => console.log(`[weixin-codex] typing heartbeat to=${to}`))
-          .catch((err) => console.warn(`[weixin-codex] typing heartbeat failed: ${String(err)}`));
+          .then(() => console.log(`[wechat-bridge] typing heartbeat to=${to}`))
+          .catch((err) => console.warn(`[wechat-bridge] typing heartbeat failed: ${String(err)}`));
       }, typingHeartbeatMs)
     : undefined;
 
@@ -528,35 +590,35 @@ async function startUserFeedback({ baseUrl, token, to, contextToken }) {
     if (heartbeat) clearInterval(heartbeat);
     try {
       await sendTyping({ baseUrl, token, to, typingTicket, status: 2 });
-      if (typingTicket) console.log(`[weixin-codex] typing stopped to=${to}`);
+      if (typingTicket) console.log(`[wechat-bridge] typing stopped to=${to}`);
     } catch (err) {
-      console.warn(`[weixin-codex] typing stop failed: ${String(err)}`);
+      console.warn(`[wechat-bridge] typing stop failed: ${String(err)}`);
     }
     return { progressSent };
   };
 }
 
 async function run() {
-  const account = loadAccount(process.env.WEIXIN_CODEX_ACCOUNT_ID);
+  const account = loadAccount(process.env.WECHAT_BRIDGE_ACCOUNT_ID || process.env.WEIXIN_CODEX_ACCOUNT_ID);
   if (!account?.token) {
     throw new Error("No Weixin account found. Run `npm run login` first.");
   }
   const baseUrl = account.baseUrl || DEFAULT_BASE_URL;
   let syncBuf = loadSyncBuf(account.accountId);
-  console.log(`[weixin-codex] running account=${account.accountId} baseUrl=${baseUrl}`);
-  console.log(`[weixin-codex] state dir: ${stateDir()}`);
+  console.log(`[wechat-bridge] running account=${account.accountId} baseUrl=${baseUrl}`);
+  console.log(`[wechat-bridge] state dir: ${stateDir()}`);
   const activeTasks = new Map();
 
   try {
     await notifyStart({ baseUrl, token: account.token });
   } catch (err) {
-    console.warn(`[weixin-codex] notifystart failed, continuing: ${String(err)}`);
+    console.warn(`[wechat-bridge] notifystart failed, continuing: ${String(err)}`);
   }
 
   while (true) {
     const resp = await getUpdates({ baseUrl, token: account.token, getUpdatesBuf: syncBuf });
     if (resp.ret && resp.ret !== 0) {
-      console.error(`[weixin-codex] getUpdates ret=${resp.ret} errcode=${resp.errcode || ""} errmsg=${resp.errmsg || ""}`);
+      console.error(`[wechat-bridge] getUpdates ret=${resp.ret} errcode=${resp.errcode || ""} errmsg=${resp.errmsg || ""}`);
       await new Promise((resolve) => setTimeout(resolve, 5000));
       continue;
     }
@@ -569,7 +631,7 @@ async function run() {
       if (msg.message_type !== MESSAGE_TYPE.USER) continue;
       const from = msg.from_user_id || "";
       if (!from || !allowedSender(account, from)) {
-        console.log(`[weixin-codex] ignored unauthorized sender=${from}`);
+        console.log(`[wechat-bridge] ignored unauthorized sender=${from}`);
         continue;
       }
       const text = extractTextItems(msg).join("\n").trim();
@@ -598,7 +660,7 @@ async function run() {
             runId: msg.run_id,
             text: "已停止当前任务。",
           });
-          console.log(`[weixin-codex] stop requested for ${from}`);
+          console.log(`[wechat-bridge] stop requested for ${from}`);
         } else if (isNewTopicCommand(text)) {
           activeTask.stopRequested = true;
           activeTask.cancel();
@@ -611,7 +673,7 @@ async function run() {
             runId: msg.run_id,
             text: "已中止当前任务并开启新话题。",
           });
-          console.log(`[weixin-codex] new topic requested during active task for ${from}`);
+          console.log(`[wechat-bridge] new topic requested during active task for ${from}`);
         } else {
           await sendText({
             baseUrl,
@@ -621,7 +683,7 @@ async function run() {
             runId: msg.run_id,
             text: "当前有任务正在进行中，请稍后再发送新消息，或发送 /stop 或 /new 中止当前任务",
           });
-          console.log(`[weixin-codex] busy reply to=${from}`);
+          console.log(`[wechat-bridge] busy reply to=${from}`);
         }
         continue;
       }
@@ -638,9 +700,9 @@ async function run() {
       }
 
       const effectiveText = text;
-      console.log(`[weixin-codex] inbound from=${from}: ${effectiveText.slice(0, 120)}`);
-      const provider = "codex";
-      console.log(`[weixin-codex] using provider=${provider} permissions=full`);
+      console.log(`[wechat-bridge] inbound from=${from}: ${effectiveText.slice(0, 120)}`);
+      const provider = loadAgentProvider();
+      console.log(`[wechat-bridge] using provider=${provider} permissions=full`);
       const stopFeedback = await startUserFeedback({
         baseUrl,
         token: account.token,
@@ -650,7 +712,10 @@ async function run() {
 
       const startedAt = Date.now();
       let lastOutputAt = startedAt;
-      const progressMs = Number.parseInt(process.env.WEIXIN_CODEX_PROGRESS_INTERVAL_MS || "45000", 10);
+      const progressMs = Number.parseInt(
+        process.env.WECHAT_BRIDGE_PROGRESS_INTERVAL_MS || process.env.WEIXIN_CODEX_PROGRESS_INTERVAL_MS || "45000",
+        10,
+      );
       const progressTimer = progressMs > 0
         ? setInterval(() => {
             const elapsed = formatElapsed(Date.now() - startedAt);
@@ -662,7 +727,7 @@ async function run() {
               contextToken: msg.context_token,
               runId: msg.run_id,
               text: `任务进行中，已运行 ${elapsed}。最近 ${idle} 内有执行活动。发送 /stop 可以结束当前任务。`,
-            }).catch((err) => console.warn(`[weixin-codex] progress send failed: ${String(err)}`));
+            }).catch((err) => console.warn(`[wechat-bridge] progress send failed: ${String(err)}`));
           }, progressMs)
         : undefined;
       const onOutput = createProgressRelay({
@@ -675,7 +740,7 @@ async function run() {
           lastOutputAt = Date.now();
         },
       });
-      const agentTask = startAgent({
+      const agentTask = (provider === "claude-code" ? startClaudeCode : startAgent)({
         peerId: from,
         text: effectiveText,
         onOutput,
@@ -699,10 +764,10 @@ async function run() {
         })
         .catch(async (err) => {
           if (isAgentStoppedError(err) || taskState.stopRequested) {
-            console.log(`[weixin-codex] task stopped for ${from}`);
+            console.log(`[wechat-bridge] task stopped for ${from}`);
             return;
           }
-          console.error(`[weixin-codex] agent failed: ${String(err)}`);
+          console.error(`[wechat-bridge] agent failed: ${String(err)}`);
           await sendReplyChunks({
             baseUrl,
             token: account.token,
@@ -724,7 +789,7 @@ async function run() {
 async function doctor() {
   console.log(`stateDir=${stateDir()}`);
   console.log(`accounts=${JSON.stringify(listAccountIds())}`);
-  const account = loadAccount(process.env.WEIXIN_CODEX_ACCOUNT_ID);
+  const account = loadAccount(process.env.WECHAT_BRIDGE_ACCOUNT_ID || process.env.WEIXIN_CODEX_ACCOUNT_ID);
   if (account) {
     console.log(`selectedAccount=${account.accountId}`);
     console.log(`baseUrl=${account.baseUrl || DEFAULT_BASE_URL}`);
@@ -737,17 +802,17 @@ async function doctor() {
 
 async function sendImageCommand(filePath) {
   if (!filePath) throw new Error("send-image requires an image path");
-  const account = loadAccount(process.env.WEIXIN_CODEX_ACCOUNT_ID);
+  const account = loadAccount(process.env.WECHAT_BRIDGE_ACCOUNT_ID || process.env.WEIXIN_CODEX_ACCOUNT_ID);
   if (!account?.token) throw new Error("No Weixin account found. Run `npm run login` first.");
-  const to = process.env.WEIXIN_CODEX_TO || account.userId;
-  if (!to) throw new Error("No recipient. Set WEIXIN_CODEX_TO or login again to capture userId.");
+  const to = process.env.WECHAT_BRIDGE_TO || process.env.WEIXIN_CODEX_TO || account.userId;
+  if (!to) throw new Error("No recipient. Set WECHAT_BRIDGE_TO or login again to capture userId.");
   const baseUrl = account.baseUrl || DEFAULT_BASE_URL;
   const result = await sendImage({
     baseUrl,
     token: account.token,
     to,
     filePath,
-    text: process.env.WEIXIN_CODEX_IMAGE_TEXT || "",
+    text: process.env.WECHAT_BRIDGE_IMAGE_TEXT || process.env.WEIXIN_CODEX_IMAGE_TEXT || "",
   });
   console.log(`sent image to=${to} messageId=${result.clientId}`);
 }
@@ -763,6 +828,6 @@ try {
     process.exit(command ? 1 : 0);
   }
 } catch (err) {
-  console.error(`[weixin-codex] ${err?.stack || err}`);
+  console.error(`[wechat-bridge] ${err?.stack || err}`);
   process.exit(1);
 }

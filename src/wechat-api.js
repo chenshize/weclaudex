@@ -9,7 +9,7 @@ export const MESSAGE_ITEM_TYPE = { TEXT: 1, IMAGE: 2 };
 export const UPLOAD_MEDIA_TYPE = { IMAGE: 1 };
 
 const CLIENT_VERSION = buildClientVersion("2.4.6");
-const BOT_AGENT = process.env.WEIXIN_CODEX_BOT_AGENT || "CodexWeixinBridge/0.1.0";
+const BOT_AGENT = process.env.WECHAT_BRIDGE_BOT_AGENT || process.env.WEIXIN_CODEX_BOT_AGENT || "WechatAgentBridge/0.2.0";
 
 function buildClientVersion(version) {
   const [major = 0, minor = 0, patch = 0] = version.split(".").map((p) => Number.parseInt(p, 10));
@@ -113,7 +113,7 @@ export async function getUpdates({ baseUrl, token, getUpdatesBuf, timeoutMs = 35
 }
 
 export async function sendText({ baseUrl, token, to, text, contextToken, runId }) {
-  const clientId = `weixin-codex-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  const clientId = `wechat-agent-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   const body = {
     msg: {
       from_user_id: "",
@@ -289,7 +289,7 @@ export async function sendImage({ baseUrl, token, to, filePath, text = "", conte
     },
   };
 
-  const clientId = `weixin-codex-img-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  const clientId = `wechat-agent-img-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   const resp = await apiPost({
     baseUrl,
     token,
