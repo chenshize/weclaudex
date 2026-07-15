@@ -1,0 +1,21 @@
+{
+  "name": "weixin-codex-bridge",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Personal Weixin-to-Codex bridge using the OpenClaw Weixin transport API shape without OpenClaw agent runtime.",
+  "bin": {
+    "weixin-codex-bridge": "./src/cli.js"
+  },
+  "scripts": {
+    "login": "node ./src/cli.js login",
+    "run": "node ./src/cli.js run",
+    "doctor": "node ./src/cli.js doctor"
+  },
+  "dependencies": {
+    "qrcode-terminal": "0.12.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Local launcher and runtime credentials/state
+start.sh
+.weixin-codex-bridge/
+
+# Logs and editor/OS files
+*.log
+.DS_Store
+.idea/
+.vscode/
