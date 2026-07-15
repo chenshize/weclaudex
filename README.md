@@ -15,6 +15,15 @@
 
 目前支持文本私聊和发送图片；暂不支持理解收到的图片、文件或语音。
 
+## 功能展示
+
+<p align="center">
+  <img src="docs/images/feature-agent-response.png" width="360" alt="在微信中查看 Agent 执行进度和回答">
+  <img src="docs/images/feature-model-controls.png" width="360" alt="在微信中查看和切换模型及思考级别">
+</p>
+
+可以在微信中查看工具执行进度和最终回复，也可以通过指令动态查询、切换后端、模型及思考级别。
+
 ## 环境要求
 
 - Node.js 22+
@@ -26,13 +35,31 @@
 npm install
 ```
 
-## 登录微信
+## 接入微信 ClawBot
+
+1. 在微信中打开“插件”页面，找到“微信 ClawBot”并进入详情。
+
+   <p align="center">
+     <img src="docs/images/setup-clawbot-plugin.png" width="360" alt="微信插件页面中的微信 ClawBot">
+   </p>
+
+2. 在运行桥接服务的电脑上执行：
 
 ```bash
 npm run login
 ```
 
-使用微信扫描终端二维码。凭据默认保存在：
+   本项目不需要执行 ClawBot 详情页里展示的 OpenClaw 安装命令。
+
+3. 在 ClawBot 详情页点击“开始扫一扫”，扫描终端显示的二维码并确认连接。
+
+   <p align="center">
+     <img src="docs/images/setup-clawbot-scan.png" width="360" alt="微信 ClawBot 详情和开始扫一扫入口">
+   </p>
+
+4. 登录完成后执行 `npm run run` 启动桥接。
+
+凭据默认保存在：
 
 ```text
 ~/.wechat-agent-bridge

@@ -15,6 +15,15 @@ This project does not use OpenClaw as its agent runtime. It reimplements the sma
 
 Text direct messages and outbound images are currently supported. Understanding inbound images, files, and voice messages is not implemented yet.
 
+## Feature showcase
+
+<p align="center">
+  <img src="docs/images/feature-agent-response.png" width="360" alt="Agent progress and responses in WeChat">
+  <img src="docs/images/feature-model-controls.png" width="360" alt="Model and effort controls in WeChat">
+</p>
+
+See tool execution progress and final responses in WeChat, then dynamically inspect or switch the backend, model, and effort level with chat commands.
+
 ## Requirements
 
 - Node.js 22+
@@ -26,13 +35,31 @@ Text direct messages and outbound images are currently supported. Understanding 
 npm install
 ```
 
-## Log in to WeChat
+## Connect through WeChat ClawBot
+
+1. Open the WeChat Plugins page, find WeChat ClawBot, and open its details.
+
+   <p align="center">
+     <img src="docs/images/setup-clawbot-plugin.png" width="360" alt="WeChat ClawBot on the Plugins page">
+   </p>
+
+2. On the computer running the bridge, execute:
 
 ```bash
 npm run login
 ```
 
-Scan the terminal QR code with WeChat. Credentials are stored in:
+   You do not need to run the OpenClaw installation command shown on the ClawBot details page for this project.
+
+3. Tap “开始扫一扫” (Start scanning) on the ClawBot details page, scan the QR code shown in the terminal, and confirm the connection.
+
+   <p align="center">
+     <img src="docs/images/setup-clawbot-scan.png" width="360" alt="WeChat ClawBot details and scan action">
+   </p>
+
+4. After login succeeds, run `npm run run` to start the bridge.
+
+Credentials are stored in:
 
 ```text
 ~/.wechat-agent-bridge
