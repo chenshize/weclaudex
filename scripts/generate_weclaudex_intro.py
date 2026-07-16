@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 WIDTH = 960
-HEIGHT = 180
+HEIGHT = 120
 FPS = 20
 DURATION_SECONDS = 7.75
 FRAME_COUNT = round(FPS * DURATION_SECONDS)
@@ -50,7 +50,7 @@ BRAND_ICE_BLUE = (184, 215, 242)
 BRAND_ICE_GLOW = (69, 123, 184)
 SOFT_WHITE = (238, 248, 248)
 
-DROP_END_Y = 76
+DROP_END_Y = 48
 WORD_FONT_SIZE = 42
 BRAND_FONT_SIZE = WORD_FONT_SIZE
 COLLISION_START = 3.15
@@ -152,7 +152,7 @@ def make_background() -> Image.Image:
 
     ambient = Image.new("RGBA", image.size, (0, 0, 0, 0))
     ambient_draw = ImageDraw.Draw(ambient)
-    ambient_draw.ellipse((265, -24, 695, 220), fill=(20, 103, 111, 38))
+    ambient_draw.ellipse((265, -52, 695, 160), fill=(20, 103, 111, 38))
     ambient = ambient.filter(ImageFilter.GaussianBlur(72))
     return Image.alpha_composite(image, ambient)
 
