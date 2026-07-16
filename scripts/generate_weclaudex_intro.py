@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 WIDTH = 960
 HEIGHT = 120
-FPS = 20
+FPS = 16
 DURATION_SECONDS = 7.75
 FRAME_COUNT = round(FPS * DURATION_SECONDS)
 FONT_CANDIDATES = (
@@ -50,7 +50,7 @@ BRAND_ICE_BLUE = (184, 215, 242)
 BRAND_ICE_GLOW = (69, 123, 184)
 SOFT_WHITE = (238, 248, 248)
 
-DROP_END_Y = 48
+DROP_END_Y = HEIGHT // 2
 WORD_FONT_SIZE = 42
 BRAND_FONT_SIZE = WORD_FONT_SIZE
 COLLISION_START = 3.15
@@ -517,8 +517,9 @@ def render_assembly_frame(frame_index: int) -> Image.Image:
 def build_palette(frames: list[Image.Image], *, reserve_transparency: bool = False) -> Image.Image:
     sample_times = (0.0, 0.8, 1.55, 2.4, 3.3, 3.8, 4.4, 6.3, 7.55)
     sample_indices = [round(time_seconds * FPS) for time_seconds in sample_times]
-    sample_width = WIDTH // 3
-    sample_height = HEIGHT // 3
+    frame_width, frame_height = frames[0].size
+    sample_width = frame_width // 3
+    sample_height = frame_height // 3
     palette_source = Image.new("RGB", (sample_width * 3, sample_height * 3))
     for position, frame_index in enumerate(sample_indices):
         thumbnail = frames[min(frame_index, len(frames) - 1)].resize((sample_width, sample_height), Image.Resampling.LANCZOS)
@@ -530,14 +531,15 @@ def build_palette(frames: list[Image.Image], *, reserve_transparency: bool = Fal
 def apply_rounded_corners(frames: list[Image.Image], radius: int) -> None:
     if radius <= 0:
         return
-    mask = Image.new("L", (WIDTH, HEIGHT), 0)
+    frame_width, frame_height = frames[0].size
+    mask = Image.new("L", (frame_width, frame_height), 0)
     draw = ImageDraw.Draw(mask)
-    draw.rounded_rectangle((0, 0, WIDTH - 1, HEIGHT - 1), radius=radius, fill=255)
+    draw.rounded_rectangle((0, 0, frame_width - 1, frame_height - 1), radius=radius, fill=255)
     transparent_pixels = [index for index, value in enumerate(mask.getdata()) if value == 0]
     for frame in frames:
         pixels = frame.load()
         for index in transparent_pixels:
-            pixels[index % WIDTH, index // WIDTH] = 255
+            pixels[index % frame_width, index // frame_width] = 255
 
 
 def save_contact_sheet(
@@ -545,14 +547,15 @@ def save_contact_sheet(
     path: Path,
     times: tuple[float, ...] = (0.72, 1.55, 2.40, 3.48, 4.20, 7.00),
 ) -> None:
-    sheet = Image.new("RGB", (WIDTH * 3, HEIGHT * 2), BACKGROUND_TOP)
-    label_font = get_font(22, regular=True)
+    frame_width, frame_height = frames[0].size
+    sheet = Image.new("RGB", (frame_width * 3, frame_height * 2), BACKGROUND_TOP)
+    label_font = get_font(18, regular=True)
     for index, time_seconds in enumerate(times):
         frame = frames[min(round(time_seconds * FPS), len(frames) - 1)].copy()
         draw = ImageDraw.Draw(frame)
-        draw.rounded_rectangle((18, 16, 105, 49), radius=11, fill=(0, 0, 0, 135))
-        draw.text((61, 33), f"{time_seconds:.1f}s", font=label_font, fill=SOFT_WHITE, anchor="mm")
-        sheet.paste(frame, ((index % 3) * WIDTH, (index // 3) * HEIGHT))
+        draw.rounded_rectangle((15, 13, 88, 41), radius=9, fill=(0, 0, 0, 135))
+        draw.text((51, 27), f"{time_seconds:.1f}s", font=label_font, fill=SOFT_WHITE, anchor="mm")
+        sheet.paste(frame, ((index % 3) * frame_width, (index // 3) * frame_height))
     path.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(path, optimize=True)
 
@@ -562,7 +565,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--contact-sheet", type=Path)
     parser.add_argument("--variant", choices=("collision", "assembly"), default="assembly")
-    parser.add_argument("--corner-radius", type=int, default=1)
+    parser.add_argument("--corner-radius", type=int, default=2)
     args = parser.parse_args()
 
     renderer = render_assembly_frame if args.variant == "assembly" else render_frame
