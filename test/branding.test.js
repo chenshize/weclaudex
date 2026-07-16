@@ -12,17 +12,18 @@ test("package metadata exposes WeClaudex as the only CLI", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
   assert.equal(manifest.name, "weclaudex");
   assert.match(manifest.repository.url, /\/weclaudex\.git$/);
-  assert.deepEqual(manifest.bin, { weclaudex: "./src/cli.js" });
+  assert.deepEqual(manifest.bin, { weclaudex: "src/cli.js" });
 });
 
 test("CLI help presents WeClaudex", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
   const result = spawnSync(process.execPath, ["src/cli.js"], {
     cwd: projectRoot,
     encoding: "utf8",
     timeout: 5000,
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^WeClaudex 0\.4\.1/m);
+  assert.match(result.stdout, new RegExp(`^WeClaudex ${manifest.version.replaceAll(".", "\\.")}`, "m"));
   assert.match(result.stdout, /^  weclaudex login$/m);
   assert.doesNotMatch(result.stdout, /legacy CLI alias/);
 });

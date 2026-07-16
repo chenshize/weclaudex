@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-07-16
+
+- Published WeClaudex as a compact npm CLI package installable with `npm install -g weclaudex`.
+- Added a package smoke test that installs the generated tarball and executes the packaged `weclaudex` binary.
+- Limited npm contents to runtime source and essential project documentation.
+
 ## 0.4.1 - 2026-07-16
 
 - Renamed the project, repository, package, and CLI to **WeClaudex** / `weclaudex`.

@@ -107,16 +107,16 @@ WECHAT_BRIDGE_CWD=/absolute/path/to/project npm run run
 
 Send `/status` in WeChat, then send your first development task directly. `npm run check` runs entry-point syntax checks and the complete test suite; `npm run doctor` verifies the account, workspace, Codex CLI, and Claude Code CLI.
 
-You can also install the CLI globally straight from GitHub:
+You can also install the CLI globally from npm:
 
 ```bash
-npm install -g git+https://github.com/chenshize/weclaudex.git
+npm install -g weclaudex
 weclaudex doctor
 weclaudex login
 WECHAT_BRIDGE_CWD=/absolute/path/to/project weclaudex run
 ```
 
-The source checkout is easier to audit, test, and contribute to; the global install is convenient when you just want to start using the bridge.
+The source checkout is easier to audit, test, and contribute to; the npm global install is convenient when you just want to start using the bridge.
 
 ## Connect through WeChat ClawBot
 
@@ -349,7 +349,7 @@ Settings saved by WeChat commands generally take precedence over default environ
 | --- | --- | --- |
 | `WECHAT_BRIDGE_LOGIN_TIMEOUT_MS` | `480000` | QR login wait time |
 | `WECHAT_BRIDGE_BOT_TYPE` | `3` | ClawBot login bot type; normally unchanged |
-| `WECHAT_BRIDGE_BOT_AGENT` | `WeClaudex/0.4.1` | iLink `bot_agent` identifier; normally unchanged |
+| `WECHAT_BRIDGE_BOT_AGENT` | `WeClaudex/0.4.2` | iLink `bot_agent` identifier; normally unchanged |
 | `WECHAT_BRIDGE_MAX_OUTBOUND_FILE_BYTES` | `26214400` | `/send` file-selection limit; only lower values are useful |
 | `WECHAT_BRIDGE_ALLOW_SENSITIVE_ARTIFACTS` | `0` | Set to `1` to let `/send` select credential-like paths; high risk |
 | `WECHAT_BRIDGE_TO` | Login user | Recipient for local `send-image` / `send-file` commands only |

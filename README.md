@@ -107,16 +107,16 @@ WECHAT_BRIDGE_CWD=/absolute/path/to/project npm run run
 
 在微信中发送 `/status`，再直接发送你的第一个开发任务。`npm run check` 会进行入口文件语法检查和完整测试；`npm run doctor` 可以检查账号、工作区、Codex 与 Claude Code CLI 状态。
 
-也可以直接从 GitHub 安装全局 CLI：
+也可以直接从 npm 安装全局 CLI：
 
 ```bash
-npm install -g git+https://github.com/chenshize/weclaudex.git
+npm install -g weclaudex
 weclaudex doctor
 weclaudex login
 WECHAT_BRIDGE_CWD=/absolute/path/to/project weclaudex run
 ```
 
-源码安装更方便审阅代码、运行测试和参与贡献；全局安装更适合只想快速使用的开发者。
+源码安装更方便审阅代码、运行测试和参与贡献；npm 全局安装更适合只想快速使用的开发者。
 
 ## 接入微信 ClawBot
 
@@ -349,7 +349,7 @@ WECHAT_BRIDGE_TO='user@im.wechat' node src/cli.js send-file /absolute/path/to/re
 | --- | --- | --- |
 | `WECHAT_BRIDGE_LOGIN_TIMEOUT_MS` | `480000` | 扫码登录等待时间 |
 | `WECHAT_BRIDGE_BOT_TYPE` | `3` | ClawBot 登录 bot type；通常无需修改 |
-| `WECHAT_BRIDGE_BOT_AGENT` | `WeClaudex/0.4.1` | iLink `bot_agent` 标识；通常无需修改 |
+| `WECHAT_BRIDGE_BOT_AGENT` | `WeClaudex/0.4.2` | iLink `bot_agent` 标识；通常无需修改 |
 | `WECHAT_BRIDGE_MAX_OUTBOUND_FILE_BYTES` | `26214400` | `/send` 文件选择上限；只建议向下调整 |
 | `WECHAT_BRIDGE_ALLOW_SENSITIVE_ARTIFACTS` | `0` | `1` 允许 `/send` 选择疑似凭据文件，风险很高 |
 | `WECHAT_BRIDGE_TO` | 登录用户 | 仅用于本机 `send-image` / `send-file` 的接收人 |

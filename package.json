@@ -1,6 +1,6 @@
 {
   "name": "weclaudex",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": false,
   "type": "module",
   "description": "Control your local Claude Code and Codex from WeChat with resumable sessions, durable queues, safe workspaces, media, and explicit artifact delivery.",
@@ -11,7 +11,9 @@
     "claude-code",
     "coding-agent",
     "ai-agent",
-    "developer-tools"
+    "developer-tools",
+    "remote-control",
+    "self-hosted"
   ],
   "license": "MIT",
   "repository": {
@@ -23,14 +25,27 @@
     "url": "https://github.com/chenshize/weclaudex/issues"
   },
   "bin": {
-    "weclaudex": "./src/cli.js"
+    "weclaudex": "src/cli.js"
+  },
+  "files": [
+    "src/",
+    "CHANGELOG.md",
+    "README.en.md",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "login": "node ./src/cli.js login",
     "run": "node ./src/cli.js run",
     "doctor": "node ./src/cli.js doctor",
     "test": "node --test",
-    "check": "node --check src/cli.js && node --check src/bridge.js && node --test"
+    "test:package": "node ./scripts/verify-package.mjs",
+    "check": "node --check src/cli.js && node --check src/bridge.js && node --test",
+    "prepublishOnly": "npm run check && npm run test:package"
   },
   "dependencies": {
     "qrcode-terminal": "0.12.0"
