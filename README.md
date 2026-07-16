@@ -1,5 +1,9 @@
 # WeClaudex
 
+<p align="center">
+  <img src="docs/images/weclaudex-intro.gif" width="800" alt="WeChat、Claude Code 与 Codex 合体为 WeClaudex">
+</p>
+
 [English](README.en.md) | 简体中文
 
 [![Version](https://img.shields.io/badge/version-0.4.0-07c160)](CHANGELOG.md)
