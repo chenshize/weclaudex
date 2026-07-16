@@ -514,7 +514,7 @@ def render_assembly_frame(frame_index: int) -> Image.Image:
     return image.convert("RGB")
 
 
-def build_palette(frames: list[Image.Image]) -> Image.Image:
+def build_palette(frames: list[Image.Image], *, reserve_transparency: bool = False) -> Image.Image:
     sample_times = (0.0, 0.8, 1.55, 2.4, 3.3, 3.8, 4.4, 6.3, 7.55)
     sample_indices = [round(time_seconds * FPS) for time_seconds in sample_times]
     sample_width = WIDTH // 3
@@ -523,7 +523,21 @@ def build_palette(frames: list[Image.Image]) -> Image.Image:
     for position, frame_index in enumerate(sample_indices):
         thumbnail = frames[min(frame_index, len(frames) - 1)].resize((sample_width, sample_height), Image.Resampling.LANCZOS)
         palette_source.paste(thumbnail, ((position % 3) * sample_width, (position // 3) * sample_height))
-    return palette_source.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+    color_count = 255 if reserve_transparency else 256
+    return palette_source.quantize(colors=color_count, method=Image.Quantize.MEDIANCUT)
+
+
+def apply_rounded_corners(frames: list[Image.Image], radius: int) -> None:
+    if radius <= 0:
+        return
+    mask = Image.new("L", (WIDTH, HEIGHT), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle((0, 0, WIDTH - 1, HEIGHT - 1), radius=radius, fill=255)
+    transparent_pixels = [index for index, value in enumerate(mask.getdata()) if value == 0]
+    for frame in frames:
+        pixels = frame.load()
+        for index in transparent_pixels:
+            pixels[index % WIDTH, index // WIDTH] = 255
 
 
 def save_contact_sheet(
@@ -548,15 +562,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--contact-sheet", type=Path)
     parser.add_argument("--variant", choices=("collision", "assembly"), default="assembly")
+    parser.add_argument("--corner-radius", type=int, default=1)
     args = parser.parse_args()
 
     renderer = render_assembly_frame if args.variant == "assembly" else render_frame
     frames = [renderer(index) for index in range(FRAME_COUNT)]
-    palette = build_palette(frames)
+    palette = build_palette(frames, reserve_transparency=args.corner_radius > 0)
     quantized = [
         frame.quantize(palette=palette, dither=Image.Dither.NONE)
         for frame in frames
     ]
+    apply_rounded_corners(quantized, args.corner_radius)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     quantized[0].save(
@@ -569,6 +585,7 @@ def main() -> None:
         loop=0,
         disposal=2,
         optimize=True,
+        transparency=255 if args.corner_radius > 0 else None,
     )
 
     if args.contact_sheet:
