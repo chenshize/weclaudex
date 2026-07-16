@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 WIDTH = 960
-HEIGHT = 384
+HEIGHT = 240
 FPS = 20
 DURATION_SECONDS = 7.75
 FRAME_COUNT = round(FPS * DURATION_SECONDS)
@@ -50,7 +50,9 @@ BRAND_ICE_BLUE = (184, 215, 242)
 BRAND_ICE_GLOW = (69, 123, 184)
 SOFT_WHITE = (238, 248, 248)
 
-DROP_END_Y = 169
+DROP_END_Y = 104
+WORD_FONT_SIZE = 48
+BRAND_FONT_SIZE = 70
 COLLISION_START = 3.15
 COLLISION_END = 3.82
 FINAL_START = 3.76
@@ -150,7 +152,7 @@ def make_background() -> Image.Image:
 
     ambient = Image.new("RGBA", image.size, (0, 0, 0, 0))
     ambient_draw = ImageDraw.Draw(ambient)
-    ambient_draw.ellipse((265, 55, 695, 425), fill=(20, 103, 111, 38))
+    ambient_draw.ellipse((265, 0, 695, 286), fill=(20, 103, 111, 38))
     ambient = ambient.filter(ImageFilter.GaussianBlur(72))
     return Image.alpha_composite(image, ambient)
 
@@ -264,7 +266,7 @@ def render_word(image: Image.Image, word: dict[str, object], time_seconds: float
     base_x = float(word["x"])
     color = word["color"]
     text = str(word["text"])
-    size = 62
+    size = WORD_FONT_SIZE
     alpha = 255
     x = base_x
 
@@ -295,7 +297,7 @@ def render_word(image: Image.Image, word: dict[str, object], time_seconds: float
         eased = ease_in_out_cubic(progress)
         x = lerp(base_x, WIDTH / 2, eased)
         y = DROP_END_Y + math.sin(progress * math.pi) * (base_x - WIDTH / 2) / 25.0
-        size = round(62 * lerp(1.0, 0.72, eased))
+        size = round(WORD_FONT_SIZE * lerp(1.0, 0.72, eased))
         alpha = round(255 * (1.0 - clamp((progress - 0.68) / 0.32)))
 
         if 0.03 < progress < 0.92:
@@ -327,7 +329,7 @@ def render_frame(frame_index: int) -> Image.Image:
         final_alpha = round(255 * ease_out_cubic(progress))
         if time_seconds >= FADE_START:
             final_alpha = round(final_alpha * (1.0 - clamp((time_seconds - FADE_START) / (DURATION_SECONDS - FADE_START))))
-        draw_final_brand(image, DROP_END_Y, round(91 * scale), final_alpha)
+        draw_final_brand(image, DROP_END_Y, round(BRAND_FONT_SIZE * scale), final_alpha)
 
     if time_seconds >= FADE_START:
         fade = clamp((time_seconds - FADE_START) / (DURATION_SECONDS - FADE_START))
