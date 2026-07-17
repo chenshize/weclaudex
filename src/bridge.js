@@ -19,6 +19,7 @@ import { PeerTaskQueue } from "./inbound-queue.js";
 import { InboxStore } from "./inbox-store.js";
 import { buildCollaborationTask } from "./collaboration.js";
 import { PollBackoff, delay, messageIdentity } from "./poll-runtime.js";
+import { formatToolProgress } from "./progress.js";
 import { anonymousPeerId, appendRunLog } from "./run-log.js";
 import { JsonPendingStore, SendScheduler } from "./send-scheduler.js";
 import {
@@ -163,21 +164,6 @@ function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function progressIcon(name) {
-  const value = String(name || "").toLowerCase();
-  if (value.includes("search")) return "🔎";
-  if (value.includes("web") || value.includes("http")) return "🌐";
-  if (/read|grep|glob|find|list/.test(value)) return "📖";
-  if (/edit|write|patch|file_change/.test(value)) return "🛠️";
-  if (/bash|command|shell/.test(value)) return "💻";
-  return "⚙️";
-}
-
-function toolProgressText(name) {
-  const label = String(name || "tool").replace(/\s+/g, " ").trim().slice(0, 120);
-  return `${progressIcon(label)} 正在执行：${label}\n请稍等…`;
 }
 
 function providerModel(provider) {
@@ -733,7 +719,7 @@ export class WechatAgentBridge {
         }
       }
       if (event?.type === "tool_use" && shouldRelayToolProgress(notificationMode)) {
-        pending.push(toolProgressText(event.name));
+        pending.push(formatToolProgress(event));
         if (!timer) timer = setTimeout(() => void flush(), 0);
       }
     };
