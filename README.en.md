@@ -108,25 +108,42 @@ Independently inspect the same error in the current project, implement the fix, 
 
 Claude Code and Codex keep separate native sessions and do not automatically share each other's conversation context. Include any required context after switching.
 
-## Why this is more than message forwarding
+## How it works
 
-- **Native session resumption:** Codex threads and Claude Code sessions are stored separately and resumed through each CLI's native mechanism.
-- **Durable task boundaries:** messages enter a durable inbox; if an Agent finishes before its reply is delivered, only the result is replayed and the task is not executed again.
-- **Frozen execution settings:** agent, workspace, access, model, and effort are frozen when a task is queued, so later setting changes cannot mutate pending work.
-- **Resilient delivery:** polling failures back off and retry, while undelivered replies persist in an outbox until a fresh delivery context arrives.
-- **Explicit artifact egress:** inbound media is cached safely. Agent artifacts must be inspected with `/artifacts` and explicitly sent with `/send` in WeChat; a path mentioned by a model is never sent automatically.
-
-### How Agent Lanes work
-
-A Lane lives inside an account namespace and is identified by all four values:
+WeClaudex is not another agent. It hands WeChat messages to the Codex or Claude Code CLI already signed in on your computer, while coordinating sessions, tasks, and replies between both sides. WeClaudex does not provide a model service or copy your project to its own intermediary server; how model services process code still depends on each CLI's behavior and configuration.
 
 ```text
-WeChat account namespace × (sender × codex/claude-code × canonical workspace path × access mode)
+WeChat message
+      ↓
+Local task queue (persist first, then run)
+      ↓
+Agent Lane (select the matching independent session)
+      ↓
+Local Codex / Claude Code CLI
+      ↓
+Local reply queue (retain failed deliveries)
+      ↓
+WeChat reply
 ```
 
-A Codex Lane stores a real `threadId`; a Claude Code Lane stores a real `sessionId`. Return to the same combination and the bridge resumes that native session, including after a bridge restart. `/new` archives and clears only the current Lane. The bridge retries with a fresh session only when the CLI precisely reports that the saved thread/session is missing and the turn has produced no text, thinking, or tool activity; otherwise it retains the failure for explicit review to avoid duplicated side effects.
+Four concepts appear throughout the rest of this README:
 
-The Lane key does not include model or effort, but every inbound task freezes `provider`, `cwd`, `accessMode`, `model`, and `effort` in the durable inbox. Running `/model`, `/think`, `/cd`, `/access`, or switching agents after a message is queued affects only later messages. Consecutive messages with different frozen snapshots are not merged into one agent turn.
+- **Agent Lane:** an independent agent conversation. It binds a WeChat sender, selected agent, project directory, and permission mode, then stores the native Codex thread or Claude Code session so you can switch away and resume later.
+- **Workspace and access:** the workspace selects the project directory; `access` determines whether the agent can only read, modify the workspace, or receive unrestricted permissions.
+- **Inbox and outbox:** the inbox is the local task queue and the outbox is the local reply queue. Together they let the bridge distinguish work that has not started from results that have not been delivered after a restart or network interruption.
+- **Artifacts:** files created or modified by an agent. They are never sent to WeChat automatically; inspect them with `/artifacts`, then select one explicitly with `/send`.
+
+### How sessions are isolated and resumed
+
+Think of an Agent Lane as the conversation slot WeClaudex saves for one execution environment. Different senders, agents, projects, or permission levels never collapse into the same context:
+
+```text
+WeChat account × sender × agent × project directory × permission mode = one Agent Lane
+```
+
+A Codex Lane stores a real `threadId`; a Claude Code Lane stores a real `sessionId`. Switching agents, projects, or permissions enters another Lane. Returning to the original combination resumes its native session, while `/new` resets only the current Lane.
+
+Model and effort are not part of Lane identity, but each task stores the agent, workspace, permission, model, and effort selected when it entered the queue. Changing settings later therefore affects only later messages and cannot silently mutate pending work. See the [architecture document](docs/ARCHITECTURE.md) for session-loss handling, persisted state, and recovery boundaries.
 
 ## Run from source
 
@@ -141,7 +158,7 @@ WECHAT_BRIDGE_CWD=/absolute/path/to/project npm run run
 
 The source checkout is best for auditing, testing, and contributing. Prefer the global npm installation for normal use.
 
-## Run and upgrade
+## Run
 
 ```bash
 cd "/absolute/path/to/project"
@@ -157,14 +174,6 @@ New installations store credentials and state in:
 ```
 
 Set `WECHAT_BRIDGE_STATE_DIR` to use another directory.
-
-### Upgrading from 0.2.x
-
-- If `~/.weixin-codex-bridge` or `~/.wechat-agent-bridge` already exists and no state directory is explicitly configured, WeClaudex continues using it. Existing accounts, tokens, sync cursors, model settings, and legacy conversation files are neither moved nor deleted.
-- Common legacy `WEIXIN_CODEX_*` environment variables remain supported as compatibility aliases. New deployments should use `WECHAT_BRIDGE_*`.
-- Agent Lanes are new 0.4.0 state. The first post-upgrade message creates a real Codex thread or Claude Code session; subsequent switches and restarts can resume it.
-- The bridge now defaults to `workspace` access instead of full access. If full access is intentional, select it explicitly with `/access full`.
-- A single installation-wide lock is now enforced per state directory, rather than one lock per account. Stop an older bridge first. Even different accounts cannot run concurrently from the same `WECHAT_BRIDGE_STATE_DIR`; use fully separate state directories when parallel account processes are required.
 
 ## WeChat commands
 
@@ -200,9 +209,13 @@ Compatibility aliases are `/claude`, `/models`, `/reasoning`, and `/workspace`. 
 
 Bridge commands are recognized only in messages with **no attachments**. Command-looking text sent alongside an attachment is treated as a regular agent request.
 
-## Workspaces and access modes
+## Workspaces and permission control
 
-### Workspace boundary
+Every development task needs two decisions: **which directory to work in** and **how much the agent may do**. Use `/cd` or `/ws` to select a project and `/access` to select permissions. Changing either one enters its matching Agent Lane so different projects or permission levels do not share conversation context.
+
+### Choose a workspace
+
+The workspace is the project directory used by Codex or Claude Code for a task. Give WeClaudex a well-bounded code repository that is safe for an agent to inspect, rather than an entire user directory.
 
 `/cd` and `/ws` resolve canonical paths and reject:
 
@@ -212,7 +225,15 @@ Bridge commands are recognized only in messages with **no attachments**. Command
 
 These checks reduce accidental exposure of overly broad directory trees, but they **do not inspect every file in a project for sensitive content**. Use a dedicated project directory and do not keep credentials there if an agent should not read them.
 
-### Access mapping
+### Choose a permission mode
+
+`/access` controls the permissions for subsequent tasks:
+
+- `read-only`: suited to analysis, explanation, and code review; the agent should not modify the project.
+- `workspace`: the default for normal development; the agent may edit the project and run commands.
+- `full`: disables the agent CLI's built-in approval or sandbox restrictions and should be used only when you understand the task and host-level risk.
+
+WeClaudex translates the same permission choice into the native arguments supported by each CLI:
 
 | Mode | Codex | Claude Code |
 | --- | --- | --- |
@@ -225,33 +246,31 @@ These checks reduce accidental exposure of overly broad directory trees, but the
 
 `WECHAT_BRIDGE_CODEX_ARGS` and `WECHAT_BRIDGE_CLAUDE_CODE_ARGS` are complete argv replacements, not appended arguments. They can replace the built-in access, model, JSON-stream, and resume arguments, which may break Lane resumption, progress parsing, or safety. They are intended only for users who understand both CLIs.
 
-## Queues and reliability
+## How tasks and replies recover
 
-### Inbound queue
+A coding-agent task can run for several minutes while the bridge process, computer network, or WeChat connection may fail in the middle. If a task exists only in memory, a restart cannot tell whether it ran. If every uncertain task runs again automatically, it may repeat file changes or external calls. WeClaudex therefore uses two persistent local queues: the inbox records tasks, and the outbox records replies and files that have not yet been delivered.
 
-- After each long poll returns, the bridge atomically writes every authorized user message in the complete server batch to the account-specific `<stateDir>/inbox/` before saving the new sync cursor. If the process exits halfway through dispatch, later messages remain replayable from the local inbox.
-- Inbox records in `received` or `queued` state are restored in receive order at startup. Work that had entered `running` becomes `interrupted` when the process stops or next starts; agent/queue failures become `failed`. The latter two classes are not rerun automatically and require `/retry` from the same sender.
-- Agent output is first atomically recorded as `completed`; it becomes `done` only after every reply chunk is delivered or durably admitted by the outbox. Restart resumes delivery without rerunning the Agent. Unstarted work cleared by `/stop` or `/new` becomes terminal `cancelled`. `done` / `cancelled` records are pruned after 24 hours by default. A corrupt inbox is quarantined and the bridge refuses to overwrite the original file.
-- Each sender is still strictly serial. Messages arriving within 650 ms while idle are coalesced, and messages received during a run become the next turn. The installation-wide agent concurrency limit is two by default, with waiting senders admitted fairly.
-- Provider, workspace, access, model, and effort are frozen and persisted when a message is first classified as work, before attachment download. Setting changes affect only later messages, and messages with different runtime snapshots are never coalesced into one batch.
-- The default in-memory scheduling limit is 20 pending items per sender. Overflow remains recoverable as `failed`; `/stop` and `/new` mark unstarted tasks `cancelled` and remove them so they cannot reappear after restart.
+### What happens when a task is interrupted
 
-### At-least-once delivery and side-effect safety
+- **Tasks that have not started** resume in receive order after the bridge restarts.
+- **Tasks interrupted during execution** are marked as interrupted and are not rerun silently. Inspect the workspace and Git state before using `/retry`.
+- **Completed tasks** store their result first. If only the WeChat reply is pending, a restart redelivers the result without invoking the agent again.
+- Tasks from one sender stay serial, while different senders may run concurrently. Every task keeps the agent, project, permission, model, and effort selected when it entered the queue.
+- `/queue` shows waiting, interrupted, and pending-delivery counts. `/stop` cancels the active and unstarted work; `/new` also opens a fresh session for the current Lane.
 
-The durable inbox follows an **at-least-once** model, not exactly-once. `received` / `queued` work can replay automatically. `running` / `failed` work deliberately requires `/retry`, because an agent may already have written a file, run a command, or called an external service before the bridge could record `done`. Retrying across that crash boundary can therefore repeat side effects.
+### Why `/retry` asks for your decision
 
-Inspect the workspace, Git state, and external systems before retrying. For important work, prefer deterministic filenames, temporary files plus atomic rename, database transactions, API idempotency keys, or “check before create” instructions. `/retry` uses the current WeChat delivery context while retaining the original frozen settings for work that had already reached the queue.
+Recovery follows an **at-least-once** model rather than exactly-once semantics that cannot be guaranteed across an agent CLI, filesystem, and external services. Before the process stopped, the agent may already have edited files, run commands, or called an API even though the bridge did not record completion. An automatic rerun could repeat those side effects, so uncertain tasks wait for you to inspect them and explicitly use `/retry`.
 
-### Polling and outbound redelivery
+### What happens when a reply cannot be delivered
 
-- The WeChat long-poll cursor, account inbox, and completed-message IDs are persisted to reduce duplicate execution after reconnects or API replay.
-- Network and API failures use jittered exponential backoff, reset after a successful poll.
-- Outbound text, images, and files are serialized per sender, spaced by 2.5 seconds by default, and use bounded retries plus a short circuit breaker for retryable failures.
-- Undelivered records are atomically persisted under `<stateDir>/outbox/` for up to 24 hours by default. If a context token is stale, delivery waits for that user's next message and retries with the fresh context. Final Agent replies use reserved critical capacity allocated before the Agent starts. A corrupt or incompatible outbox is quarantined and fails closed instead of being overwritten with an empty queue.
+Failed text, image, and file deliveries enter the local outbox and retry after connectivity returns. If the WeChat delivery context has expired, the bridge waits for that user's next message and then redelivers with the fresh context. Pending records are retained for 24 hours by default; corrupt queue files are quarantined instead of being overwritten as an empty queue.
 
-This is a best-effort local bridge. It cannot provide a distributed transaction across WeChat, an agent CLI, the filesystem, and external services. Confirm important operations with `/status`, repository state, or local logs.
+This remains a best-effort local bridge and cannot provide a distributed transaction across WeChat, an agent CLI, the filesystem, and external services. Confirm important operations with `/status`, repository state, or local logs. See the [architecture document](docs/ARCHITECTURE.md) for the full state machine, concurrency limits, backoff, and capacity policies.
 
 ## Inbound images, files, voice, and video
+
+You can send a screenshot, file, voice message, or video together with a task description in WeChat. WeClaudex gives it to the selected agent as input for that task, although format support differs between agents.
 
 The bridge downloads encrypted content from the official WeChat CDN, decrypts it locally, detects the MIME type from content, and stores it under `<stateDir>/media-cache/` using a content hash as the filename. The cache is accessible only to the current user and retains up to 100 files or 24 hours by default. Attachments referenced by unfinished inbox tasks are **pinned** against TTL and count pruning. A backlog of attachment tasks can therefore temporarily raise the cache above 100 files until those tasks complete and a later prune runs.
 
@@ -308,7 +327,7 @@ Settings saved by WeChat commands generally take precedence over default environ
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `WECHAT_BRIDGE_STATE_DIR` | `~/.weclaudex`, or an existing legacy directory | Credentials, Lanes, peer settings, cursor, dedupe data, durable inbox, outbox, outbound spool, media cache, and run logs |
+| `WECHAT_BRIDGE_STATE_DIR` | `~/.weclaudex` | Credentials, Lanes, peer settings, cursor, dedupe data, durable inbox, outbox, outbound spool, media cache, and run logs |
 | `WECHAT_BRIDGE_ACCOUNT_ID` | Most recent login | Select the account to run when more than one is saved |
 | `WECHAT_BRIDGE_ALLOW_FROM` | Login `userId` | Comma-separated sender allowlist; merged with the login user |
 | `WECHAT_BRIDGE_ALLOW_ALL` | `0` | Set to `1` to accept any sender; strongly discouraged |
