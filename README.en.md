@@ -25,6 +25,7 @@ Real Codex threads and Claude Code sessions resume across switches and restarts.
 - **Cross-device handoff:** inspect saved native sessions and generate the exact terminal command that resumes the current conversation.
 - **Always-on service:** macOS launchd and Linux systemd user services provide startup, restart, status, and logs.
 - **WeChat micro-supervision:** choose quiet, normal, or verbose notifications for tool progress and long-task heartbeats while native input requests remain visible.
+- **Two-agent relay:** ask the other agent to review the current worktree read-only with `/review`, or explicitly route follow-up implementation with `/handoff`, without copying chat transcripts.
 - **Layered safety controls:** sender allowlists, validated workspaces, `read-only / workspace / full`, explicit `/send`, and sensitive-path blocking constrain remote operations.
 
 ## Feature showcase
@@ -102,8 +103,9 @@ By default, the bridge only processes messages from the WeChat `userId` returned
 /claude-code
 Analyze this error screenshot and suggest a fix
 
-/codex
-Independently inspect the same error in the current project, implement the fix, and run the tests
+/review codex root cause, regression risk, and missing tests
+
+/handoff codex implement the reviewed fix and run the tests
 
 /status
 /artifacts
@@ -202,6 +204,8 @@ Set `WECHAT_BRIDGE_STATE_DIR` to use another directory.
 | `/notify` | Show the current notification mode and available values |
 | `/notify quiet\|normal\|verbose` | Select critical results only, standard tool progress, or detailed heartbeats |
 | `/watch` | Switch quickly to `verbose`; `/mute` switches to `quiet` |
+| `/review [codex\|claude-code] [focus]` | Ask the selected agent to review the current worktree under `read-only`; defaults to the other agent |
+| `/handoff [codex\|claude-code] [goal]` | Explicitly route the current workspace and next goal to the selected agent; defaults to the other agent |
 | `/pwd` | Show the current workspace |
 | `/cd <path>` | Change workspace; accepts an absolute path or a path relative to the current workspace |
 | `/ws list` | List named workspaces |
@@ -227,6 +231,15 @@ Bridge commands are recognized only in messages with **no attachments**. Command
 When Codex structured output contains an input/approval item, or Claude Code emits `AskUserQuestion` / `ExitPlanMode`, WeClaudex shows the native request and task ID in WeChat. The bridge does not approve permissions for the agent or imitate its permission engine. Whether the current non-interactive CLI turn exits after the request depends on that upstream version; your WeChat reply continues the same native session as its next turn rather than being injected into a still-running tool call.
 
 In normal and verbose mode, the final reply includes a compact receipt with task ID, agent, duration, CLI-reported token usage, and recent artifact count. `/tasks` uses the same ID for durable state inspection.
+
+### Cross-agent review and handoff
+
+`/review` and `/handoff` are one-shot routing actions. They do not change the default agent selected by `/codex` or `/claude-code`, and they do not start an autonomous loop inside the bridge.
+
+- `/review` forces the target agent to `read-only`, asks it to inspect the current Git worktree, changes, and tests directly, and returns findings ordered by severity. Example: `/review claude-code security boundaries and missing tests`.
+- `/handoff` retains the current access mode and creates a structured task containing the goal, workspace, and source-agent identity. Example: `/handoff codex finish the fix and run regression tests`.
+
+Both commands treat the repository on disk as the source of truth instead of copying or fabricating another agent's chat context. The target still runs through its native CLI and Agent Lane; upstream controls its model capabilities, tools, permission decisions, and session recovery.
 
 ## Workspaces and permission control
 
@@ -431,7 +444,6 @@ Do not paste tokens, account IDs, or raw chat logs into a public issue. Follow t
 
 Future releases will focus on completing real developer workflows in WeChat instead of merely adding more chat commands:
 
-- use the other agent for a read-only `/review` of current changes and hand tasks between Codex and Claude Code;
 - discover local Git repositories and switch by project name instead of phone-unfriendly absolute paths;
 - provide isolated task workspaces, change summaries, and a safe `/undo`;
 - turn Issue/PR/CI links, error screenshots, and voice into actionable development tasks.

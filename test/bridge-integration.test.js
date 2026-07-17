@@ -10,6 +10,7 @@ import { InboxStore } from "../src/inbox-store.js";
 import {
   agentLaneIdentity,
   loadAgentLane,
+  loadPeerRuntime,
   loadSyncBuf,
   savePeerRuntime,
   secureStateDirectory,
@@ -218,17 +219,44 @@ test("the bridge runs and resumes native Codex and Claude sessions across restar
       assert.match(resumedReply.text, /✅ (Codex|Claude Code) 已完成/);
       assert.match(resumedReply.text, /任务 [a-f0-9]{8}/);
 
+      await bridge.processUpdateResponse({
+        msgs: [inboundMessage(provider, "review", "/review security and regressions")],
+        get_updates_buf: "cursor-review",
+      });
+      await bridge.taskQueue.waitForIdle("owner");
+
+      await bridge.processUpdateResponse({
+        msgs: [inboundMessage(provider, "handoff", "/handoff finish the remaining tests")],
+        get_updates_buf: "cursor-handoff",
+      });
+      await bridge.taskQueue.waitForIdle("owner");
+
+      const targetProvider = provider === "codex" ? "claude" : "codex";
+      assert.equal(loadPeerRuntime(statePeerId).provider, provider);
+      assert.ok(delivered.some((payload) => payload.text.includes("独立复核当前工作区（只读）")));
+      assert.ok(delivered.some((payload) => payload.text.includes("显式交接")));
+
       const invocations = fs.readFileSync(invocationLog, "utf8")
         .trim()
         .split("\n")
-        .map((line) => JSON.parse(line))
-        .filter((entry) => entry.provider === (provider === "codex" ? "codex" : "claude"));
-      assert.equal(invocations.length, 2);
+        .map((line) => JSON.parse(line));
+      assert.equal(invocations.length, 4);
       assert.equal(invocations[0].resumed, false);
       assert.equal(invocations[1].resumed, true);
       assert.match(invocations[0].prompt, /first integration task/);
       assert.match(invocations[1].prompt, /second integration task/);
       assert.doesNotMatch(invocations[1].prompt, /first integration task/);
+      assert.equal(invocations[2].provider, targetProvider);
+      assert.match(invocations[2].prompt, /independent reviewer/i);
+      assert.match(invocations[2].prompt, /security and regressions/);
+      assert.ok(
+        provider === "codex"
+          ? invocations[2].args.includes("plan")
+          : invocations[2].args.includes("read-only"),
+      );
+      assert.equal(invocations[3].provider, targetProvider);
+      assert.match(invocations[3].prompt, /explicit cross-Agent handoff/i);
+      assert.match(invocations[3].prompt, /finish the remaining tests/);
     });
   }
 });

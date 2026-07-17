@@ -120,6 +120,12 @@ The adapter event vocabulary includes `question`, `approval_request`, `diff`, an
 
 `/tasks` is a read-only view over the existing durable inbox rather than a second task database. Public task IDs are short SHA-256-derived aliases of the raw WeChat message IDs. `/task` resolves a unique prefix and exposes frozen runtime metadata and recovery state without printing the original transport identifier.
 
+## Cross-Agent routing
+
+`/review` and `/handoff` are converted into ordinary durable inbox work items with a one-task runtime snapshot that targets the requested provider. Their batch key is unique, so they cannot be silently coalesced with an adjacent user turn. Neither command changes the peer's saved default provider.
+
+`/review` forces the target snapshot to `read-only`; `/handoff` retains the current access mode. Both use the same workspace and account-scoped peer identity, so the target runs in its matching native Agent Lane. The prompt tells the target to inspect the repository on disk rather than replaying or translating the source Agent's transcript. WeClaudex does not run reviewer/implementer loops, choose a winner, merge outputs, or replace either upstream harness.
+
 ## Outbound scheduling and content snapshots
 
 The account-specific outbox serializes visible messages per peer, enforces a minimum send interval, performs bounded retries, and opens a short circuit after repeated rate limits. A stale WeChat context leaves the operation pending until that peer sends another message; the fresh context token and run ID are then applied before a flush. Each persisted operation keeps a stable client ID across retry attempts. Final Agent replies use a separate critical capacity pool; the bridge reserves the maximum bounded reply chunk count before launching an Agent.
