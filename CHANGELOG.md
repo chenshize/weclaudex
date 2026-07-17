@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.1 - 2026-07-17
+
+- Show the redacted, bounded command text for Codex `command_execution` and Claude Code Bash progress instead of only the generic tool name.
+- Show concise targets for file, search, URL, and similar tool calls when structured input is available.
+- Redact common token, password, API-key, Authorization-header, and credential-bearing URL forms before tool details are sent to WeChat.
+
 ## 0.7.0 - 2026-07-17
 
 - Added `/review [codex|claude-code] [focus]` for an independent read-only review of the current worktree by either native Agent.
