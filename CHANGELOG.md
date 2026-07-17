@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-07-17
+
+- Added `/review [codex|claude-code] [focus]` for an independent read-only review of the current worktree by either native Agent.
+- Added `/handoff [codex|claude-code] [goal]` for explicit cross-Agent continuation in the same workspace and access boundary.
+- Kept collaboration bridge-native and non-autonomous: the selected default Agent is unchanged, tasks use durable inbox scheduling, and execution remains inside Codex or Claude Code.
+- Added structured handoff prompts that treat repository state as the source of truth instead of copying full chat transcripts between incompatible native sessions.
+
 ## 0.6.0 - 2026-07-17
 
 - Added per-sender `quiet`, `normal`, and `verbose` notification policies through `/notify`, `/watch`, and `/mute`.

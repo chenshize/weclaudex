@@ -17,6 +17,7 @@ import {
 } from "./command-parser.js";
 import { PeerTaskQueue } from "./inbound-queue.js";
 import { InboxStore } from "./inbox-store.js";
+import { buildCollaborationTask } from "./collaboration.js";
 import { PollBackoff, delay, messageIdentity } from "./poll-runtime.js";
 import { anonymousPeerId, appendRunLog } from "./run-log.js";
 import { JsonPendingStore, SendScheduler } from "./send-scheduler.js";
@@ -260,8 +261,8 @@ function durableMessageIdentity(message) {
   return `sha256:${crypto.createHash("sha256").update(id).digest("hex")}`;
 }
 
-function snapshotRuntime(peerId) {
-  const runtime = loadPeerRuntime(peerId);
+function snapshotRuntime(peerId, overrides = {}) {
+  const runtime = { ...loadPeerRuntime(peerId), ...overrides };
   const snapshot = {
     provider: runtime.provider,
     cwd: runtime.cwd,
@@ -1515,6 +1516,51 @@ export class WechatAgentBridge {
 
       const preview = extractInboundContent(message);
       const command = preview.attachments.length === 0 ? parseBridgeCommand(preview.text) : null;
+      if (command && ["review", "handoff"].includes(command.name)) {
+        const frozenStatePeerId = inboxRecord?.statePeerId || this.statePeerId(peerId);
+        const currentRuntime = loadPeerRuntime(frozenStatePeerId);
+        const collaboration = buildCollaborationTask(command, currentRuntime);
+        const runtimeSnapshot = snapshotRuntime(frozenStatePeerId, {
+          provider: collaboration.targetProvider,
+          accessMode: collaboration.accessMode,
+        });
+        runtimeSnapshot.key = crypto.createHash("sha256")
+          .update(`${runtimeSnapshot.key}:${id}`)
+          .digest("hex");
+        inboxRecord = this.inbox.classify(id, "work", {
+          runtimeSnapshot,
+          statePeerId: frozenStatePeerId,
+        }) || inboxRecord;
+        this.flushOutbox(peerId, context);
+        const task = {
+          text: collaboration.text,
+          attachments: [],
+          context,
+          receivedAt: Date.now(),
+          runtimeSnapshot: inboxRecord.runtimeSnapshot,
+          statePeerId: inboxRecord.statePeerId,
+          inboxId: id,
+        };
+        this.inbox.queue(id, task);
+        const queued = this.taskQueue.enqueue(peerId, task, { immediate: true });
+        if (!queued.accepted) {
+          const error = new Error("inbound task queue is full");
+          if (replay) {
+            error.code = "INBOUND_QUEUE_FULL";
+            throw error;
+          }
+          await this.safeSendText(peerId, context, "等待消息已经达到上限，请发送 /stop 清理队列后再试。");
+          this.failInboxItem(id, error);
+          return;
+        }
+        safeLog("collaboration_queued", {
+          peer: anonymousPeerId(peerId),
+          kind: command.name,
+          provider: collaboration.targetProvider,
+        });
+        await this.safeSendText(peerId, context, collaboration.acknowledgement, { durable: false });
+        return;
+      }
       if (command) {
         commandMessage = true;
         inboxRecord = this.inbox.classify(id, "command") || inboxRecord;

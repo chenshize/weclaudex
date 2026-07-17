@@ -25,6 +25,7 @@
 - **跨设备接力**：查看桥保存的原生 Session，并生成可在电脑终端直接恢复同一会话的命令。
 - **后台常驻**：macOS launchd 与 Linux systemd 用户服务负责开机启动、重启、状态和日志。
 - **微信微监督**：用安静、标准或详细通知控制工具进度和长任务心跳；原生 Agent 请求输入时仍会通知。
+- **双 Agent 接力**：用 `/review` 让另一 Agent 只读复核当前工作区，或用 `/handoff` 把后续实现显式交给它；无需复制聊天记录。
 - **分级安全控制**：发送者白名单、安全工作区、`read-only / workspace / full`、显式 `/send` 和敏感路径拦截共同约束远程操作范围。
 
 ## 功能展示
@@ -102,8 +103,9 @@ weclaudex service install
 /claude-code
 分析这张报错截图并给出修复建议
 
-/codex
-请独立检查当前项目中的同一报错，实施修复并运行测试
+/review codex 错误根因、回归风险和测试缺口
+
+/handoff codex 根据复核结果实施修复并运行测试
 
 /status
 /artifacts
@@ -202,6 +204,8 @@ weclaudex run
 | `/notify` | 查看当前通知模式和可选项 |
 | `/notify quiet\|normal\|verbose` | 切换为仅关键结果、标准工具进度或详细心跳 |
 | `/watch` | 快速切换到 `verbose`；`/mute` 快速切换到 `quiet` |
+| `/review [codex\|claude-code] [重点]` | 让指定 Agent 以 `read-only` 权限独立复核当前工作区；省略 Agent 时使用另一方 |
+| `/handoff [codex\|claude-code] [目标]` | 把当前工作区和后续目标显式交给指定 Agent；省略 Agent 时使用另一方 |
 | `/pwd` | 查看当前工作区 |
 | `/cd <path>` | 切换工作区；支持绝对路径和相对当前工作区的路径 |
 | `/ws list` | 列出命名工作区 |
@@ -227,6 +231,15 @@ weclaudex run
 当 Codex 的结构化输出包含输入/审批请求，或 Claude Code 发出 `AskUserQuestion` / `ExitPlanMode` 事件时，WeClaudex 会在微信中显示原生请求和任务编号。桥不会替 Agent 批准权限，也不会模拟其权限引擎。当前非交互 CLI 是否在请求后结束由对应版本决定；你的微信回复会作为同一原生 Session 的下一轮继续，而不是注入仍在运行的工具调用。
 
 标准和详细模式的最终回复包含一行任务回执：短任务编号、Agent、耗时、CLI 报告的 token 用量和最近产物数量。`/tasks` 可以使用同一编号查看持久状态。
+
+### 跨 Agent 复核与交接
+
+`/review` 和 `/handoff` 是一次性路由动作，不会修改你用 `/codex` 或 `/claude-code` 选择的默认 Agent，也不会在桥内启动自治循环。
+
+- `/review` 强制目标 Agent 使用 `read-only`，让它直接检查当前 Git 工作树、改动和测试，按严重程度返回问题；例如 `/review claude-code 安全边界和遗漏测试`。
+- `/handoff` 沿用当前 access，把目标、当前工作区和来源 Agent 写成结构化交接任务；例如 `/handoff codex 完成修复并运行回归测试`。
+
+两条指令都以磁盘上的仓库状态为事实来源，不复制或伪造另一个 Agent 的聊天上下文。目标 Agent 仍通过自己的原生 CLI 和 Agent Lane 执行，模型能力、工具、权限判断与会话恢复均由上游负责。
 
 ## 工作区与权限控制
 
@@ -431,7 +444,6 @@ WeClaudex 使用原子 JSON 写入并尽量将敏感状态设为 `0600`、目录
 
 后续版本会继续围绕“开发者在微信里监督和接力原生 Agent”，而不是重新实现一套 Agent Harness：
 
-- 使用另一个 Agent对当前改动执行只读 `/review`，并支持 Codex ↔ Claude Code 轻量任务交接；
 - 自动发现本机 Git 仓库，用项目名而不是手机上难输入的绝对路径切换；
 - 为任务提供隔离工作区、变更摘要和安全 `/undo`；
 - 把 Issue/PR/CI 链接、报错截图和语音整理成可执行的开发任务。
